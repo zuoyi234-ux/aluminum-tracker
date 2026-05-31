@@ -1,8 +1,9 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import type { WeeklyReport } from '@/lib/types';
 import type { MarketMovers, StockItem } from '@/lib/market-movers';
+import type { ValuationResult, SectorData, EnrichedCompany } from '@/lib/valuation';
 
 // ── 铝业周报 Tab ──────────────────────────────────────────────────────────
 function AluminumSection() {
@@ -219,8 +220,220 @@ function MarketSection() {
   );
 }
 
+// ── 产业链估值 Tab ────────────────────────────────────────────────────────
+function ValuationSection() {
+  const [status, setStatus] = useState<'idle' | 'loading' | 'done' | 'error'>('idle');
+  const [data, setData] = useState<ValuationResult | null>(null);
+  const [errorMsg, setErrorMsg] = useState('');
+  const [activeSector, setActiveSector] = useState<string>('all');
+  const [query, setQuery] = useState('');
+
+  async function load() {
+    setStatus('loading');
+    setErrorMsg('');
+    try {
+      const res = await fetch('/api/valuation');
+      const json = await res.json();
+      if (!res.ok || !json.ok) throw new Error(json.error ?? `HTTP ${res.status}`);
+      setData(json.data);
+      setStatus('done');
+    } catch (e) {
+      setErrorMsg(e instanceof Error ? e.message : String(e));
+      setStatus('error');
+    }
+  }
+
+  const displaySectors: SectorData[] = useMemo(() => {
+    if (!data) return [];
+    const sectors = activeSector === 'all' ? data.sectors : data.sectors.filter((s) => s.id === activeSector);
+    if (!query.trim()) return sectors;
+    const q = query.trim().toLowerCase();
+    return sectors.map((s) => ({
+      ...s,
+      companies: s.companies.filter(
+        (c) => c.name.toLowerCase().includes(q) || c.code.toLowerCase().includes(q)
+      ),
+    })).filter((s) => s.companies.length > 0);
+  }, [data, activeSector, query]);
+
+  return (
+    <div className="space-y-5">
+      {/* 头部控制栏 */}
+      <div className="bg-white rounded-xl border border-slate-200 p-5">
+        <div className="flex items-start justify-between gap-4 flex-wrap">
+          <div>
+            <h2 className="font-semibold text-slate-800 mb-1">产业链估值表</h2>
+            <p className="text-sm text-slate-500">AI 产业链核心标的 · 实时行情 · 动态 PE / PB</p>
+            {data && <p className="text-xs text-slate-400 mt-1">更新时间：{data.updatedAt}</p>}
+          </div>
+          <button
+            onClick={load}
+            disabled={status === 'loading'}
+            className="flex-shrink-0 px-4 py-2 bg-blue-700 hover:bg-blue-800 disabled:bg-blue-300 text-white text-sm font-medium rounded-lg transition-colors"
+          >
+            {status === 'loading' ? '加载中…' : status === 'done' ? '刷新' : '加载估值表'}
+          </button>
+        </div>
+        {status === 'error' && (
+          <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
+            加载失败：{errorMsg}
+          </div>
+        )}
+      </div>
+
+      {status === 'loading' && (
+        <div className="bg-white rounded-xl border border-slate-200 p-12 text-center">
+          <div className="w-8 h-8 border-2 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
+          <p className="text-sm text-slate-500">拉取实时行情…</p>
+        </div>
+      )}
+
+      {data && (
+        <>
+          {/* 板块筛选卡片 */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+            <button
+              onClick={() => setActiveSector('all')}
+              className={`p-3 rounded-xl border text-left transition-all ${
+                activeSector === 'all'
+                  ? 'bg-blue-700 border-blue-700 text-white'
+                  : 'bg-white border-slate-200 hover:border-blue-300'
+              }`}
+            >
+              <div className={`text-xs font-medium ${activeSector === 'all' ? 'text-blue-100' : 'text-slate-500'}`}>全部</div>
+              <div className={`text-sm font-semibold mt-0.5 ${activeSector === 'all' ? 'text-white' : 'text-slate-800'}`}>
+                {data.sectors.reduce((n, s) => n + s.companies.length, 0)} 家公司
+              </div>
+            </button>
+            {data.sectors.map((s) => (
+              <button
+                key={s.id}
+                onClick={() => setActiveSector(s.id)}
+                className={`p-3 rounded-xl border text-left transition-all ${
+                  activeSector === s.id
+                    ? 'bg-blue-700 border-blue-700 text-white'
+                    : 'bg-white border-slate-200 hover:border-blue-300'
+                }`}
+              >
+                <div className={`text-xs font-medium ${activeSector === s.id ? 'text-blue-100' : 'text-slate-500'}`}>
+                  {s.name}
+                </div>
+                <div className={`text-sm font-semibold mt-0.5 ${activeSector === s.id ? 'text-white' : 'text-slate-800'}`}>
+                  {s.companies.length} 家
+                  {s.avgPe !== null && (
+                    <span className={`ml-1.5 text-xs font-normal ${activeSector === s.id ? 'text-blue-200' : 'text-slate-400'}`}>
+                      PE {s.avgPe}x
+                    </span>
+                  )}
+                </div>
+              </button>
+            ))}
+          </div>
+
+          {/* 搜索 */}
+          <div className="bg-white rounded-xl border border-slate-200 px-4 py-2.5 flex items-center gap-2">
+            <svg className="w-4 h-4 text-slate-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+            <input
+              type="text"
+              placeholder="搜索代码 / 公司"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              className="flex-1 text-sm outline-none text-slate-700 placeholder-slate-400"
+            />
+            {query && (
+              <button onClick={() => setQuery('')} className="text-slate-400 hover:text-slate-600 text-xs">✕</button>
+            )}
+          </div>
+
+          {/* 估值表 */}
+          {displaySectors.map((sector) => (
+            <ValuationTable key={sector.id} sector={sector} />
+          ))}
+        </>
+      )}
+    </div>
+  );
+}
+
+function ValuationTable({ sector }: { sector: SectorData }) {
+  return (
+    <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+      <div className="px-5 py-3.5 border-b border-slate-100 flex items-center gap-3">
+        <h3 className="font-semibold text-slate-800 text-sm">{sector.name}</h3>
+        <span className="text-xs text-slate-400">{sector.companies.length} 家</span>
+        {sector.avgPe !== null && (
+          <span className="text-xs bg-blue-50 text-blue-600 px-2 py-0.5 rounded-full">均PE {sector.avgPe}x</span>
+        )}
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs">
+          <thead>
+            <tr className="bg-slate-50 text-slate-500">
+              <th className="py-2 px-3 text-left font-medium">代码</th>
+              <th className="py-2 px-3 text-left font-medium">公司</th>
+              <th className="py-2 px-3 text-right font-medium">股价</th>
+              <th className="py-2 px-3 text-right font-medium">涨跌幅</th>
+              <th className="py-2 px-3 text-right font-medium">市值(亿)</th>
+              <th className="py-2 px-3 text-right font-medium">动态PE</th>
+              <th className="py-2 px-3 text-right font-medium">PB</th>
+            </tr>
+          </thead>
+          <tbody>
+            {sector.companies.map((c) => (
+              <ValuationRow key={`${c.market}-${c.code}`} company={c} />
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function ValuationRow({ company: c }: { company: EnrichedCompany }) {
+  const isUS = c.market === 'US';
+  const chg = c.changePercent;
+  return (
+    <tr className="border-t border-slate-50 hover:bg-slate-50/60 transition-colors">
+      <td className="py-2.5 px-3">
+        <span className="font-mono text-slate-500">{c.code}</span>
+        <span className={`ml-1.5 text-[10px] px-1 py-0.5 rounded ${
+          isUS ? 'bg-purple-50 text-purple-500' : c.market === 'SH' ? 'bg-red-50 text-red-500' : 'bg-green-50 text-green-600'
+        }`}>
+          {isUS ? 'US' : c.market}
+        </span>
+      </td>
+      <td className="py-2.5 px-3 font-medium text-slate-800">{c.name}</td>
+      <td className="py-2.5 px-3 text-right tabular-nums text-slate-700">
+        {c.price !== null ? c.price.toLocaleString() : <span className="text-slate-300">—</span>}
+      </td>
+      <td className="py-2.5 px-3 text-right tabular-nums">
+        {chg !== null ? (
+          <span className={chg >= 0 ? 'text-rose-600 font-semibold' : 'text-green-600 font-semibold'}>
+            {(chg >= 0 ? '+' : '') + chg.toFixed(2) + '%'}
+          </span>
+        ) : <span className="text-slate-300">—</span>}
+      </td>
+      <td className="py-2.5 px-3 text-right tabular-nums text-slate-600">
+        {c.marketCapCny !== null
+          ? c.marketCapCny >= 1000
+            ? `${(c.marketCapCny / 1000).toFixed(1)}千亿`
+            : `${c.marketCapCny}`
+          : <span className="text-slate-300">—</span>}
+      </td>
+      <td className="py-2.5 px-3 text-right tabular-nums text-slate-700">
+        {c.pe !== null ? c.pe.toFixed(1) : <span className="text-slate-300">—</span>}
+      </td>
+      <td className="py-2.5 px-3 text-right tabular-nums text-slate-500">
+        {c.pb !== null ? c.pb.toFixed(2) : <span className="text-slate-300">—</span>}
+      </td>
+    </tr>
+  );
+}
+
 // ── 主页面 ────────────────────────────────────────────────────────────────
-type Tab = 'aluminum' | 'market';
+type Tab = 'aluminum' | 'market' | 'valuation';
 
 export default function Dashboard() {
   const [tab, setTab] = useState<Tab>('aluminum');
@@ -230,7 +443,7 @@ export default function Dashboard() {
       <header className="bg-gradient-to-r from-slate-900 to-blue-900 text-white px-6 py-6">
         <div className="max-w-5xl mx-auto">
           <h1 className="text-xl font-bold mb-1">投研助手</h1>
-          <p className="text-blue-200 text-sm">铝业周报 · A股日报 · Claude AI 分析</p>
+          <p className="text-blue-200 text-sm">铝业周报 · A股日报 · 产业链估值 · Claude AI 分析</p>
         </div>
       </header>
 
@@ -238,8 +451,9 @@ export default function Dashboard() {
       <div className="max-w-5xl mx-auto px-6 pt-5">
         <div className="flex gap-1 bg-white rounded-xl border border-slate-200 p-1 w-fit shadow-sm">
           {([
-            { key: 'aluminum', label: '🔩 铝业周报' },
-            { key: 'market',   label: '📊 A股日报' },
+            { key: 'aluminum',  label: '🔩 铝业周报' },
+            { key: 'market',    label: '📊 A股日报' },
+            { key: 'valuation', label: '📈 产业链估值' },
           ] as { key: Tab; label: string }[]).map(({ key, label }) => (
             <button
               key={key}
@@ -257,7 +471,7 @@ export default function Dashboard() {
       </div>
 
       <main className="max-w-5xl mx-auto px-6 py-5">
-        {tab === 'aluminum' ? <AluminumSection /> : <MarketSection />}
+        {tab === 'aluminum' ? <AluminumSection /> : tab === 'market' ? <MarketSection /> : <ValuationSection />}
       </main>
     </div>
   );
