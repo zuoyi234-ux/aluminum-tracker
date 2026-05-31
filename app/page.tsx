@@ -212,7 +212,7 @@ function MarketSection() {
         <>
           <StockTable stocks={data.gainers} title="📈 涨幅榜 TOP 20（市值≥200亿）" rank />
           <StockTable stocks={data.losers} title="📉 跌幅榜 TOP 20（市值≥200亿）" rank />
-          <StockTable stocks={data.topVolume} title="💹 成交额榜 TOP 50（全市场）" rank />
+          <StockTable stocks={data.topVolume} title="💹 成交额榜 TOP 30（全市场）" rank />
         </>
       )}
     </div>

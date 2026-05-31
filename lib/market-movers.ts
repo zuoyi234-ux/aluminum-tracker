@@ -114,11 +114,11 @@ async function generateReasons(
 
 // ── 主入口 ────────────────────────────────────────────────────────────────
 export async function fetchMarketMovers(): Promise<MarketMovers> {
-  // 并行抓取：涨幅榜300条 + 跌幅榜300条 + 成交额榜50条
+  // 并行抓取：涨幅榜100条 + 跌幅榜100条 + 成交额榜30条
   const [gainersRaw, losersRaw, volumeRaw] = await Promise.all([
-    emFetch('f3', 1, 300),  // 按涨幅降序
-    emFetch('f3', 0, 300),  // 按涨幅升序（即跌幅）
-    emFetch('f6', 1, 50),   // 按成交额降序
+    emFetch('f3', 1, 100),  // 按涨幅降序
+    emFetch('f3', 0, 100),  // 按涨幅升序（即跌幅）
+    emFetch('f6', 1, 30),   // 按成交额降序
   ]);
 
   const MIN_CAP = 200; // 亿元
@@ -131,27 +131,26 @@ export async function fetchMarketMovers(): Promise<MarketMovers> {
     .filter((s) => s.marketCap >= MIN_CAP && s.changePercent < 0)
     .slice(0, 20);
 
-  const topVolume = volumeRaw.slice(0, 50);
+  const topVolume = volumeRaw.slice(0, 30);
 
-  // 合并去重后批量生成原因（gainers + losers + volume 去重）
-  const allUnique = [
-    ...gainers.map((s) => ({ ...s, _ctx: '涨幅榜' })),
-    ...losers.map((s) => ({ ...s, _ctx: '跌幅榜' })),
-    ...topVolume
-      .filter((s) => !gainers.find((g) => g.code === s.code) && !losers.find((l) => l.code === s.code))
-      .map((s) => ({ ...s, _ctx: '成交额榜' })),
-  ];
+  // 合并去重后分组生成原因（gainers + losers + volume 去重，并行调用 Claude）
+  const gainerGroup = gainers.map((s) => ({ ...s, _ctx: '涨幅榜' }));
+  const loserGroup = losers.map((s) => ({ ...s, _ctx: '跌幅榜' }));
+  const volumeGroup = topVolume
+    .filter((s) => !gainers.find((g) => g.code === s.code) && !losers.find((l) => l.code === s.code))
+    .map((s) => ({ ...s, _ctx: '成交额榜' }));
 
-  // 分段调用 Claude（每段最多 30 只，控制在 10s 内）
-  const BATCH = 30;
+  // 三组并行调用 Claude，各自独立，总耗时 ≈ 单次最慢耗时
+  const [gainerReasons, loserReasons, volumeReasons] = await Promise.all([
+    generateReasons(gainerGroup, '涨幅榜'),
+    generateReasons(loserGroup, '跌幅榜'),
+    generateReasons(volumeGroup, '成交额榜'),
+  ]);
+
   const reasonMap: Record<string, string> = {};
-
-  for (let i = 0; i < allUnique.length; i += BATCH) {
-    const batch = allUnique.slice(i, i + BATCH);
-    const ctx = batch[0]._ctx;
-    const reasons = await generateReasons(batch, ctx);
-    batch.forEach((s, j) => { reasonMap[s.code] = reasons[j]; });
-  }
+  gainerGroup.forEach((s, i) => { reasonMap[s.code] = gainerReasons[i]; });
+  loserGroup.forEach((s, i) => { reasonMap[s.code] = loserReasons[i]; });
+  volumeGroup.forEach((s, i) => { reasonMap[s.code] = volumeReasons[i]; });
 
   const attachReason = (s: StockItem): StockItem => ({
     ...s,
@@ -165,7 +164,7 @@ export async function fetchMarketMovers(): Promise<MarketMovers> {
   return {
     gainers: gainers.map(attachReason),
     losers: losers.map(attachReason),
-    topVolume: topVolume.map(attachReason),
+    topVolume: topVolume.map(attachReason), // 30 只
     tradeDate,
   };
 }
