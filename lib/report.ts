@@ -25,28 +25,19 @@ function buildPrompt(report: Omit<WeeklyReport, 'narrative'>): string {
     )
     .join('\n');
 
-  return `你是一位专注中国有色金属行业的卖方分析师，请基于以下数据撰写一份简洁、专业的周报，约 600 字，使用中文。
+  return `你是中国有色金属行业卖方分析师。基于以下数据，用中文写一份300字左右的周报摘要，分四段：①铝价/氧化铝价格水平点评 ②三家公司盈利能力差异及成因 ③各公司EPS核心假设与风险 ④投资建议（推荐/中性/回避）。直接输出正文，无需标题。
 
 ${priceBlock}
 
-三家公司 2026 年业绩重新测算：
-${estBlock}
-
-请从以下几个维度展开分析：
-1. 本周铝价与氧化铝价格水平评价，与历史均值对比判断高低
-2. 三家公司在当前价格下的盈利能力差异及成因（水电优势、自给率等）
-3. 对各公司 2026 年 EPS 的核心假设与风险提示
-4. 基于上述分析，对三家公司的短期投资建议（推荐 / 中性 / 回避）
-
-语言简练，有观点，不必重复列出表格数据。`;
+${estBlock}`;
 }
 
 export async function generateNarrative(
   report: Omit<WeeklyReport, 'narrative'>
 ): Promise<string> {
   const msg = await client.messages.create({
-    model: 'claude-sonnet-4-6',
-    max_tokens: 1024,
+    model: 'claude-haiku-4-5-20251001',
+    max_tokens: 600,
     messages: [{ role: 'user', content: buildPrompt(report) }],
   });
 

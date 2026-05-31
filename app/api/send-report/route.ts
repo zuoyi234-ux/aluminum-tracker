@@ -6,7 +6,7 @@ import { sendReport } from '@/lib/email';
 import type { WeeklyReport } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
-export const maxDuration = 60;
+export const maxDuration = 10;
 
 // 手动触发接口（Dashboard 上的"立即发送"按钮调用此路由）
 export async function POST() {

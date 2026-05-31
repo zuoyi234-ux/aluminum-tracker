@@ -6,7 +6,7 @@ import { sendReport } from '@/lib/email';
 import type { WeeklyReport } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
-export const maxDuration = 60; // Vercel max for hobby plan
+export const maxDuration = 10; // Vercel max for hobby plan
 
 export async function GET(request: Request) {
   // 验证 Vercel Cron 密钥（防止公开触发）
