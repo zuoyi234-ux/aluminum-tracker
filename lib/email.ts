@@ -1,7 +1,15 @@
-import { Resend } from 'resend';
+import nodemailer from 'nodemailer';
 import type { WeeklyReport } from './types';
 
-const resend = new Resend(process.env.RESEND_API_KEY);
+const transporter = nodemailer.createTransport({
+  host: 'smtp.gmail.com',
+  port: 465,
+  secure: true,
+  auth: {
+    user: process.env.GMAIL_USER,
+    pass: process.env.GMAIL_APP_PASSWORD,
+  },
+});
 
 function fmt(n: number): string {
   return n.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -53,14 +61,14 @@ function buildHtml(report: WeeklyReport): string {
   <!-- Price snapshot -->
   <div style="padding:24px 32px;background:#f1f5f9;border-bottom:1px solid #e2e8f0">
     <p style="margin:0 0 12px;font-size:11px;font-weight:600;color:#64748b;letter-spacing:0.06em;text-transform:uppercase">本周行情</p>
-    <div style="display:flex;gap:24px;flex-wrap:wrap">
+    <div style="display:flex;gap:32px;flex-wrap:wrap">
       <div>
         <p style="margin:0 0 2px;font-size:12px;color:#64748b">沪铝现货</p>
-        <p style="margin:0;font-size:24px;font-weight:700;color:#1e293b">${report.prices.alPrice.toLocaleString()} <span style="font-size:13px;font-weight:400;color:#64748b">元/吨</span></p>
+        <p style="margin:0;font-size:26px;font-weight:700;color:#1e293b">${report.prices.alPrice.toLocaleString()} <span style="font-size:13px;font-weight:400;color:#64748b">元/吨</span></p>
       </div>
       <div>
         <p style="margin:0 0 2px;font-size:12px;color:#64748b">氧化铝现货</p>
-        <p style="margin:0;font-size:24px;font-weight:700;color:#1e293b">${report.prices.aluminaPrice.toLocaleString()} <span style="font-size:13px;font-weight:400;color:#64748b">元/吨</span></p>
+        <p style="margin:0;font-size:26px;font-weight:700;color:#1e293b">${report.prices.aluminaPrice.toLocaleString()} <span style="font-size:13px;font-weight:400;color:#64748b">元/吨</span></p>
       </div>
     </div>
     <p style="margin:12px 0 0;font-size:11px;color:#94a3b8">数据来源：${report.prices.source}</p>
@@ -81,9 +89,7 @@ function buildHtml(report: WeeklyReport): string {
             <th style="padding:10px 16px;text-align:right;color:#64748b;font-weight:600;border-bottom:2px solid #e2e8f0">氧化铝+100→净利</th>
           </tr>
         </thead>
-        <tbody>
-          ${rows}
-        </tbody>
+        <tbody>${rows}</tbody>
       </table>
     </div>
     <p style="margin:12px 0 0;font-size:11px;color:#94a3b8">注：敏感性为税后净利润变化，单位亿元；氧化铝敏感性为负值代表成本上升。</p>
@@ -101,7 +107,7 @@ function buildHtml(report: WeeklyReport): string {
   <div style="padding:16px 32px;background:#f1f5f9;border-top:1px solid #e2e8f0">
     <p style="margin:0;font-size:11px;color:#94a3b8;line-height:1.6">
       本报告由 Claude AI 辅助生成，仅供参考，不构成投资建议。<br>
-      生成时间：${new Date(report.generatedAt).toLocaleString('zh-CN')} &nbsp;·&nbsp; Aluminum Tracker
+      生成时间：${new Date(report.generatedAt).toLocaleString('zh-CN')} · Aluminum Tracker
     </p>
   </div>
 
@@ -111,11 +117,11 @@ function buildHtml(report: WeeklyReport): string {
 }
 
 export async function sendReport(report: WeeklyReport): Promise<void> {
-  const to = process.env.REPORT_EMAIL ?? 'zuoyi234@gmail.com';
+  const to = process.env.REPORT_EMAIL ?? process.env.GMAIL_USER ?? '';
   const date = new Date(report.generatedAt).toLocaleDateString('zh-CN');
 
-  await resend.emails.send({
-    from: 'Aluminum Tracker <report@resend.dev>',
+  await transporter.sendMail({
+    from: `"铝业周报" <${process.env.GMAIL_USER}>`,
     to,
     subject: `铝业周报 ${date} | 沪铝 ${report.prices.alPrice.toLocaleString()} 元/吨`,
     html: buildHtml(report),
