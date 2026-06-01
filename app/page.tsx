@@ -234,6 +234,62 @@ function WeeklyTrend({ history }: { history: WeeklySnapshot[] }) {
   );
 }
 
+// ── 现货价格环比对比卡 ────────────────────────────────────────────────────
+interface PricePoint { weekLabel: string; alPrice: number; aluminaPrice: number }
+
+function PriceComparison({ curr, prev }: { curr: PricePoint; prev?: PricePoint }) {
+  const n = (v: number) => v.toLocaleString('zh-CN');
+
+  function PriceCard({ label, currVal, prevVal }: { label: string; currVal: number; prevVal?: number }) {
+    const diff = prevVal !== undefined ? currVal - prevVal : null;
+    const pct  = prevVal ? ((currVal - prevVal) / prevVal) * 100 : null;
+    const up   = diff !== null && diff > 0;
+    const down = diff !== null && diff < 0;
+    return (
+      <div className="flex-1 bg-slate-50 rounded-xl p-4">
+        <p className="text-xs font-medium text-slate-500 mb-2">{label}</p>
+        <p className="text-2xl font-bold tabular-nums text-slate-900 leading-none">
+          {n(currVal)}
+          <span className="text-sm font-normal text-slate-400 ml-1">元/吨</span>
+        </p>
+        {diff !== null && pct !== null ? (
+          <p className={`mt-2 text-sm font-semibold tabular-nums leading-none ${
+            up ? 'text-rose-600' : down ? 'text-green-600' : 'text-slate-400'
+          }`}>
+            {up ? '▲' : down ? '▼' : '—'}&ensp;
+            {up ? '+' : ''}{n(Math.round(diff))}
+            <span className="ml-1.5 text-xs font-normal opacity-75">
+              ({up ? '+' : ''}{pct.toFixed(2)}%)
+            </span>
+          </p>
+        ) : (
+          <p className="mt-2 text-xs text-slate-400">暂无上期对比</p>
+        )}
+        {prevVal !== undefined && (
+          <p className="mt-1.5 text-xs text-slate-400">
+            上期（{prev?.weekLabel}）：{n(prevVal)} 元/吨
+          </p>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-white rounded-xl border border-slate-200 p-5">
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="font-semibold text-slate-800 text-sm">现货行情</h3>
+        <span className="text-xs text-slate-400">
+          {curr.weekLabel}{prev ? ` vs ${prev.weekLabel}` : ''}
+        </span>
+      </div>
+      <div className="flex gap-3">
+        <PriceCard label="沪铝现货" currVal={curr.alPrice} prevVal={prev?.alPrice} />
+        <PriceCard label="氧化铝现货" currVal={curr.aluminaPrice} prevVal={prev?.aluminaPrice} />
+      </div>
+    </div>
+  );
+}
+
 // ── 铝业周报 Tab ──────────────────────────────────────────────────────────
 function AluminumSection() {
   const [status, setStatus] = useState<'idle' | 'loading' | 'done' | 'error'>('idle');
@@ -301,6 +357,19 @@ function AluminumSection() {
 
       {report && (
         <>
+          <PriceComparison
+            curr={{
+              weekLabel: isoWeekLabel(report.generatedAt),
+              alPrice: report.prices.alPrice,
+              aluminaPrice: report.prices.aluminaPrice,
+            }}
+            prev={
+              history.length >= 2
+                ? { weekLabel: history[1].weekLabel, alPrice: history[1].alPrice, aluminaPrice: history[1].aluminaPrice }
+                : undefined
+            }
+          />
+
           <CalcBreakdown estimates={report.estimates} prices={report.prices} />
 
           <div className="bg-white rounded-xl border border-slate-200 p-5">
