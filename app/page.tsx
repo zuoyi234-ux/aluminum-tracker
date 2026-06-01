@@ -290,12 +290,313 @@ function PriceComparison({ curr, prev }: { curr: PricePoint; prev?: PricePoint }
   );
 }
 
+// ── 单公司完整测算卡片 ────────────────────────────────────────────────────
+function CompanyDetailCard({ est, prices }: { est: CompanyEstimateDetailed; prices: Prices }) {
+  const tax = est.preTaxProfit * est.taxRate;
+  return (
+    <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+      <div className="bg-gradient-to-r from-blue-900 to-slate-800 text-white px-5 py-4">
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <div>
+            <h3 className="font-bold text-base">{est.name}</h3>
+            <p className="text-blue-200 text-xs mt-0.5">{est.code} · 2026E 业绩测算</p>
+          </div>
+          <div className="text-right">
+            <div className="text-2xl font-bold tabular-nums">{est.netProfit.toFixed(2)}<span className="text-sm font-normal text-blue-200 ml-1">亿净利</span></div>
+            <div className="text-blue-100 text-xs">EPS {est.eps.toFixed(2)} 元 · 20xPE ≈ {(est.eps * 20).toFixed(2)} 元</div>
+          </div>
+        </div>
+      </div>
+      <div className="p-5 space-y-5">
+        <div className="grid grid-cols-2 gap-3">
+          <div className="bg-slate-50 rounded-lg p-3">
+            <div className="text-xs text-slate-500">沪铝现货</div>
+            <div className="text-lg font-bold tabular-nums text-slate-800">{prices.alPrice.toLocaleString()}<span className="text-xs font-normal text-slate-400 ml-1">元/吨</span></div>
+          </div>
+          <div className="bg-slate-50 rounded-lg p-3">
+            <div className="text-xs text-slate-500">氧化铝</div>
+            <div className="text-lg font-bold tabular-nums text-slate-800">{prices.aluminaPrice.toLocaleString()}<span className="text-xs font-normal text-slate-400 ml-1">元/吨</span></div>
+          </div>
+        </div>
+        <section>
+          <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2">核心经营假设</h4>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-6 gap-y-1.5 text-sm">
+            {([
+              ['产量', `${est.alProduction} 万吨/年`],
+              ['氧化铝自给率', `${(est.aluminaSelfSupply * 100).toFixed(0)}%`],
+              ['电耗', `${est.powerConsumption.toLocaleString()} kWh/吨`],
+              ['电价', `${est.powerPrice.toFixed(3)} 元/kWh`],
+              ['其他变动成本', `${est.otherVarCostInput.toLocaleString()} 元/吨`],
+              ['期间费用', `${est.periodExpenses} 亿元`],
+              ['其他利润', `${est.otherProfit} 亿元`],
+              ['税率', `${(est.taxRate * 100).toFixed(0)}%`],
+              ['股本', `${est.shares} 亿股`],
+            ] as [string, string][]).map(([l, v]) => (
+              <div key={l} className="flex justify-between border-b border-slate-50 py-1">
+                <span className="text-slate-500">{l}</span>
+                <span className="font-medium text-slate-700 tabular-nums">{v}</span>
+              </div>
+            ))}
+          </div>
+        </section>
+        <section>
+          <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2">吨铝成本拆解</h4>
+          <div className="space-y-1">
+            {([
+              ['氧化铝成本', est.aluminaCostPerTon, `1.92 × 自给/外购加权`],
+              ['电力成本', est.powerCostPerTon, `${est.powerConsumption.toLocaleString()} kWh × ${est.powerPrice}`],
+              ['其他变动成本', est.otherVarCostInput, '碳阳极、辅料、折旧等'],
+            ] as [string, number, string][]).map(([label, val, sub]) => (
+              <div key={label} className="flex items-center justify-between py-1.5 border-b border-slate-50 text-sm">
+                <span className="text-slate-700">{label}<span className="ml-2 text-xs text-slate-400">{sub}</span></span>
+                <span className="tabular-nums font-medium">{val.toLocaleString()}</span>
+              </div>
+            ))}
+            <div className="flex justify-between py-2 font-semibold text-slate-800 border-t border-slate-200">
+              <span>变动成本合计</span><span className="tabular-nums">{est.varCostPerTon.toLocaleString()} 元/吨</span>
+            </div>
+            <div className={`flex justify-between py-2 font-bold rounded-lg px-2 ${est.grossProfitPerTon >= 0 ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
+              <span>吨铝毛利</span>
+              <span className="tabular-nums">{est.grossProfitPerTon >= 0 ? '+' : ''}{est.grossProfitPerTon.toLocaleString()} 元/吨</span>
+            </div>
+          </div>
+        </section>
+        <section>
+          <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2">利润表（亿元）</h4>
+          <div className="space-y-0.5 text-sm">
+            {([
+              { label: '铝锭收入', val: est.revenue, indent: false },
+              { label: '毛利润', val: est.grossProfit, indent: false, note: `吨毛利 ${est.grossProfitPerTon} × ${est.alProduction}万吨` },
+              { label: '减：期间费用', val: -est.periodExpenses, indent: true },
+              { label: '主业营业利润', val: est.mainOperatingProfit, indent: false, border: true },
+              { label: '加：其他业务利润', val: est.otherProfit, indent: true },
+              { label: '税前利润', val: est.preTaxProfit, indent: false, border: true },
+              { label: `减：所得税（${(est.taxRate*100).toFixed(0)}%）`, val: -tax, indent: true },
+            ] as { label: string; val: number; indent: boolean; note?: string; border?: boolean }[]).map(({ label, val, indent, note, border }) => (
+              <div key={label} className={`flex items-center justify-between py-1.5 ${border ? 'border-t border-slate-100 mt-1' : ''}`}>
+                <span className={indent ? 'pl-4 text-slate-500' : 'text-slate-700'}>
+                  {label}{note && <span className="ml-2 text-xs text-slate-400">{note}</span>}
+                </span>
+                <span className={`tabular-nums ${val < 0 ? 'text-slate-500' : 'text-slate-700'}`}>
+                  {val >= 0 ? val.toFixed(2) : `(${Math.abs(val).toFixed(2)})`}
+                </span>
+              </div>
+            ))}
+            <div className="flex justify-between items-center py-3 mt-2 border-t-2 border-slate-300 font-bold text-base">
+              <span className="text-slate-800">归母净利润</span>
+              <span className={`tabular-nums ${est.netProfit >= 0 ? 'text-blue-700' : 'text-red-600'}`}>{est.netProfit.toFixed(2)} 亿元</span>
+            </div>
+            <div className="flex justify-between py-1 text-sm">
+              <span className="text-slate-500">EPS</span>
+              <span className="tabular-nums font-semibold text-blue-700">{est.eps.toFixed(2)} 元/股</span>
+            </div>
+            <div className="flex justify-between py-1 text-sm">
+              <span className="text-slate-500">隐含股价（20x PE）</span>
+              <span className="tabular-nums font-semibold text-purple-700">{(est.eps * 20).toFixed(2)} 元</span>
+            </div>
+          </div>
+        </section>
+        <section>
+          <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2">敏感性分析</h4>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="bg-green-50 rounded-lg p-3">
+              <div className="text-xs text-green-700 mb-1">沪铝 +1,000 元/吨</div>
+              <div className="text-lg font-bold text-green-700">+{est.alSensitivity.toFixed(2)} 亿</div>
+              <div className="text-xs text-green-600 mt-0.5">EPS +{(est.alSensitivity / est.shares).toFixed(2)} 元</div>
+            </div>
+            <div className="bg-orange-50 rounded-lg p-3">
+              <div className="text-xs text-orange-700 mb-1">氧化铝 +100 元/吨</div>
+              <div className="text-lg font-bold text-orange-700">{est.aluminaSensitivity.toFixed(2)} 亿</div>
+              <div className="text-xs text-orange-600 mt-0.5">EPS {(est.aluminaSensitivity / est.shares).toFixed(2)} 元</div>
+            </div>
+          </div>
+        </section>
+      </div>
+    </div>
+  );
+}
+
+// ── 情景监测工具（神火 + 云铝，基于用户自定义参数）─────────────────────────
+const SENS_COMPANIES = [
+  { name: '神火股份', code: '000933', production: 95,  selfSupply: 0.30, aoConsumption: 1.92, powerConsumption: 13_500, powerDiscount: 0,    otherFixedCost: 1_800, coalProfit: 15, taxRate: 0.15, shares: 12.4 },
+  { name: '云铝股份', code: '000807', production: 150, selfSupply: 0.50, aoConsumption: 1.92, powerConsumption: 13_500, powerDiscount: 0.10,  otherFixedCost: 1_500, coalProfit: 0,  taxRate: 0.15, shares: 31.6 },
+] as const;
+
+type SensCompany = typeof SENS_COMPANIES[number];
+
+function calcSens(p: SensCompany, alPrice: number, aoPrice: number, powerPrice: number) {
+  const effPower = powerPrice - p.powerDiscount;
+  const aoCost   = p.aoConsumption * (p.selfSupply * aoPrice * 0.60 + (1 - p.selfSupply) * aoPrice);
+  const pwCost   = p.powerConsumption * effPower;
+  const varCost  = aoCost + pwCost + p.otherFixedCost;
+  const grossPerTon  = alPrice - varCost;
+  const totalGross   = (grossPerTon * p.production * 10_000) / 1e8;
+  const preTax       = totalGross + p.coalProfit;
+  const netProfit    = Math.round(preTax * (1 - p.taxRate) * 100) / 100;
+  const eps          = Math.round(netProfit / p.shares * 100) / 100;
+  return { grossPerTon: Math.round(grossPerTon), totalGross: Math.round(totalGross * 10) / 10, netProfit, eps, price20x: Math.round(eps * 20 * 100) / 100 };
+}
+
+const AL_STEPS = [17_000, 17_500, 18_000, 18_500, 19_000, 19_500, 20_000, 20_500, 21_000, 22_000];
+
+function SensitivityTool() {
+  const [alPrice,    setAlPrice]    = useState(19_500);
+  const [aoPrice,    setAoPrice]    = useState(3_600);
+  const [powerPrice, setPowerPrice] = useState(0.35);
+
+  const BASE_AL    = 19_500;
+  const BASE_AO    = 3_600;
+  const BASE_POWER = 0.35;
+
+  const results = SENS_COMPANIES.map((c) => ({
+    company: c,
+    curr: calcSens(c, alPrice, aoPrice, powerPrice),
+    base: calcSens(c, BASE_AL, BASE_AO, BASE_POWER),
+  }));
+
+
+  function SliderRow({ label, value, min, max, step, onChange, format }: {
+    label: string; value: number; min: number; max: number; step: number;
+    onChange: (v: number) => void; format: (v: number) => string;
+  }) {
+    return (
+      <div className="flex items-center gap-3">
+        <span className="text-sm text-slate-500 w-28 flex-shrink-0">{label}</span>
+        <input type="range" min={min} max={max} step={step} value={value}
+          onChange={(e) => onChange(Number(e.target.value))}
+          className="flex-1 h-1.5 accent-blue-600" />
+        <span className="text-sm font-semibold text-slate-800 tabular-nums w-20 text-right">{format(value)}</span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+      <div className="px-5 py-4 border-b border-slate-100">
+        <h2 className="font-semibold text-slate-800">情景监测工具</h2>
+        <p className="text-xs text-slate-400 mt-0.5">实时调整价格变量 · 神火股份 + 云铝股份 · 20x PE 目标价</p>
+      </div>
+
+      {/* 滑块控件 */}
+      <div className="px-5 py-4 space-y-3 bg-slate-50 border-b border-slate-100">
+        <SliderRow label="铝价（元/吨）" value={alPrice} min={15_000} max={25_000} step={500}
+          onChange={setAlPrice} format={(v) => v.toLocaleString()} />
+        <SliderRow label="氧化铝（元/吨）" value={aoPrice} min={1_500} max={8_000} step={100}
+          onChange={setAoPrice} format={(v) => v.toLocaleString()} />
+        <SliderRow label="电力成本（元/kWh）" value={powerPrice} min={0.20} max={0.55} step={0.01}
+          onChange={setPowerPrice} format={(v) => v.toFixed(2)} />
+      </div>
+
+      {/* 公司卡片 */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-0 divide-y sm:divide-y-0 sm:divide-x divide-slate-100">
+        {results.map(({ company: c, curr, base }) => (
+          <div key={c.code} className="p-5">
+            <div className="flex items-center justify-between mb-3">
+              <div>
+                <span className="font-semibold text-slate-800">{c.name}</span>
+                <span className="ml-2 text-xs text-slate-400">{c.code}</span>
+              </div>
+              <span className="text-xs bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full">
+                产能 {c.production}万吨 · 自给率 {(c.selfSupply*100).toFixed(0)}%
+              </span>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              {([
+                ['吨铝毛利', `${curr.grossPerTon.toLocaleString()} 元`, base.grossPerTon],
+                ['总毛利', `${curr.totalGross.toFixed(1)} 亿`, base.totalGross],
+                ['净利润', `${curr.netProfit.toFixed(2)} 亿`, base.netProfit],
+                ['EPS', `${curr.eps.toFixed(2)} 元`, base.eps],
+              ] as [string, string, number][]).map(([label, display, baseVal]) => {
+                const currNum = label === '吨铝毛利' ? curr.grossPerTon : label === '总毛利' ? curr.totalGross : label === '净利润' ? curr.netProfit : curr.eps;
+                const d = currNum - baseVal;
+                return (
+                  <div key={label} className="bg-slate-50 rounded-lg p-2.5">
+                    <div className="text-xs text-slate-500 mb-0.5">{label}</div>
+                    <div className={`text-sm font-bold tabular-nums ${curr.netProfit < 0 && (label === '净利润' || label === 'EPS') ? 'text-red-600' : 'text-slate-800'}`}>
+                      {display}
+                    </div>
+                    {Math.abs(d) >= (label === '吨铝毛利' ? 1 : 0.005) && (
+                      <div className={`text-[10px] mt-0.5 ${d > 0 ? 'text-rose-500' : 'text-green-600'}`}>
+                        {d > 0 ? '+' : ''}{label === '吨铝毛利' ? Math.round(d).toLocaleString() : d.toFixed(2)} vs 基准
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+            <div className="mt-3 flex items-center justify-between py-2 px-3 bg-purple-50 rounded-lg">
+              <span className="text-xs text-purple-700">20x PE 目标价</span>
+              <span className="text-base font-bold tabular-nums text-purple-700">{curr.price20x.toFixed(2)} 元</span>
+            </div>
+            {c.powerDiscount > 0 && (
+              <p className="mt-2 text-xs text-blue-500">水电优惠：-{c.powerDiscount.toFixed(2)} 元/kWh，节约 {Math.round(c.powerConsumption * c.powerDiscount).toLocaleString()} 元/吨</p>
+            )}
+            {c.coalProfit > 0 && (
+              <p className="mt-1 text-xs text-amber-600">煤炭业务：固定贡献 {c.coalProfit} 亿元/年</p>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {/* 敏感性矩阵 */}
+      <div className="border-t border-slate-100 overflow-x-auto">
+        <div className="px-5 py-3 bg-slate-50 text-xs font-semibold text-slate-500 uppercase tracking-wide">
+          铝价情景矩阵（氧化铝 {aoPrice.toLocaleString()} · 电价 {powerPrice.toFixed(2)}）
+        </div>
+        <table className="w-full text-xs min-w-[600px]">
+          <thead>
+            <tr className="border-b border-slate-100 bg-slate-50">
+              <th className="py-2 px-3 text-left font-medium text-slate-500">铝价（元/吨）</th>
+              {SENS_COMPANIES.map((c) => (
+                [
+                  <th key={c.code+'net'} className="py-2 px-3 text-right font-medium text-slate-500 whitespace-nowrap">{c.name} 净利(亿)</th>,
+                  <th key={c.code+'eps'} className="py-2 px-3 text-right font-medium text-slate-500">{c.name} EPS</th>,
+                  <th key={c.code+'pe'} className="py-2 px-3 text-right font-medium text-slate-500">@20xPE</th>,
+                ]
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {AL_STEPS.map((ap) => {
+              const isCurr = ap === alPrice;
+              const isBase = ap === BASE_AL;
+              return (
+                <tr key={ap} className={`border-t border-slate-50 ${isCurr ? 'bg-blue-50/70 font-semibold' : isBase ? 'bg-amber-50/40' : 'hover:bg-slate-50/60'}`}>
+                  <td className="py-2 px-3 tabular-nums text-slate-700">
+                    {ap.toLocaleString()}
+                    {isBase && !isCurr && <span className="ml-1.5 text-[10px] text-amber-600 bg-amber-100 px-1 rounded">基准</span>}
+                    {isCurr && <span className="ml-1.5 text-[10px] text-blue-600 bg-blue-100 px-1 rounded">当前</span>}
+                  </td>
+                  {SENS_COMPANIES.map((c) => {
+                    const r = calcSens(c, ap, aoPrice, powerPrice);
+                    const neg = r.netProfit < 0;
+                    return [
+                      <td key={c.code+'net'} className={`py-2 px-3 text-right tabular-nums ${neg ? 'text-red-500' : 'text-slate-700'}`}>{r.netProfit.toFixed(2)}</td>,
+                      <td key={c.code+'eps'} className={`py-2 px-3 text-right tabular-nums font-semibold ${neg ? 'text-red-500' : 'text-blue-700'}`}>{r.eps.toFixed(2)}</td>,
+                      <td key={c.code+'pe'} className={`py-2 px-3 text-right tabular-nums ${neg ? 'text-red-500' : 'text-purple-700'}`}>{r.price20x.toFixed(2)}</td>,
+                    ];
+                  })}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 // ── 铝业周报 Tab ──────────────────────────────────────────────────────────
 function AluminumSection() {
   const [status, setStatus] = useState<'idle' | 'loading' | 'done' | 'error'>('idle');
   const [report, setReport] = useState<WeeklyReport | null>(null);
   const [errorMsg, setErrorMsg] = useState('');
   const [history, setHistory] = useState<WeeklySnapshot[]>([]);
+
+  // 快速测算（无邮件/无 Claude）
+  const [estStatus, setEstStatus] = useState<'idle' | 'loading' | 'done' | 'error'>('idle');
+  const [estData, setEstData] = useState<{ prices: Prices; estimates: CompanyEstimateDetailed[] } | null>(null);
+  const [activeCode, setActiveCode] = useState('000807');
 
   useEffect(() => {
     setHistory(loadHistory());
@@ -319,8 +620,61 @@ function AluminumSection() {
     }
   }
 
+  async function loadEstimate() {
+    setEstStatus('loading');
+    try {
+      const res = await fetch('/api/estimate');
+      const data = await res.json();
+      if (!res.ok || !data.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
+      setEstData({ prices: data.prices, estimates: data.estimates });
+      setEstStatus('done');
+    } catch (e) {
+      setEstStatus('error');
+    }
+  }
+
+  const activeEst = estData?.estimates.find((e) => e.code === activeCode) ?? null;
+
   return (
     <div className="space-y-6">
+      {/* 情景监测工具 */}
+      <SensitivityTool />
+
+      {/* 单公司完整测算 */}
+      <div className="bg-white rounded-xl border border-slate-200 p-5">
+        <div className="flex items-center justify-between gap-4 flex-wrap mb-3">
+          <div>
+            <h2 className="font-semibold text-slate-800">完整业绩测算</h2>
+            <p className="text-sm text-slate-500 mt-0.5">基于实时行情重算，不触发邮件发送</p>
+          </div>
+          <button onClick={loadEstimate} disabled={estStatus === 'loading'}
+            className="px-4 py-2 bg-blue-700 hover:bg-blue-800 disabled:bg-blue-300 text-white text-sm font-medium rounded-lg transition-colors">
+            {estStatus === 'loading' ? '拉取中…' : estStatus === 'done' ? '刷新' : '立即测算'}
+          </button>
+        </div>
+        {estData && (
+          <div className="flex gap-1 bg-slate-100 rounded-lg p-1 w-fit mb-4">
+            {estData.estimates.map((e) => (
+              <button key={e.code} onClick={() => setActiveCode(e.code)}
+                className={`px-4 py-1.5 rounded-md text-sm font-medium transition-all ${activeCode === e.code ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+                {e.name}
+              </button>
+            ))}
+          </div>
+        )}
+        {estStatus === 'loading' && (
+          <div className="flex items-center gap-2 py-2 text-sm text-slate-500">
+            <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+            拉取实时行情…
+          </div>
+        )}
+      </div>
+      {activeEst && estData && <CompanyDetailCard est={activeEst} prices={estData.prices} />}
+
+      <div className="border-t border-slate-100 pt-2">
+        <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide">周报推送</p>
+      </div>
+
       <div className="bg-white rounded-xl border border-slate-200 p-5">
         <h2 className="font-semibold text-slate-800 mb-2">自动推送计划</h2>
         <p className="text-sm text-slate-500 leading-relaxed">
