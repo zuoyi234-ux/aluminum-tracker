@@ -1,4 +1,4 @@
-import type { CompanyParams, CompanyEstimate, Prices } from './types';
+import type { CompanyParams, CompanyEstimateDetailed, Prices } from './types';
 
 // ── 三家公司的核心参数（2026 年经营假设）────────────────────────────────
 // 数据来源：公司公告 + Wind 分析师一致预期整理
@@ -51,44 +51,28 @@ export const COMPANIES: CompanyParams[] = [
 ];
 
 // ── 单家公司测算 ──────────────────────────────────────────────────────────
-export function calcEstimate(p: CompanyParams, prices: Prices): CompanyEstimate {
+export function calcEstimate(p: CompanyParams, prices: Prices): CompanyEstimateDetailed {
   const { alPrice, aluminaPrice } = prices;
-  const prodTon = p.alProduction * 10_000; // 转换为吨
+  const prodTon = p.alProduction * 10_000;
 
-  // 氧化铝成本（元/吨铝）
   const aluminaCostPerTon =
     p.aluminaConsumption *
     (p.aluminaSelfSupply * aluminaPrice * p.aluminaSelfCostRatio +
       (1 - p.aluminaSelfSupply) * aluminaPrice);
 
-  // 电力成本（元/吨铝）
   const powerCostPerTon = p.powerConsumption * p.powerPrice;
-
-  // 完全变动成本（元/吨铝）
   const varCostPerTon = aluminaCostPerTon + powerCostPerTon + p.otherVarCost;
 
-  // 毛利（亿元）
   const grossProfitPerTon = alPrice - varCostPerTon;
   const grossProfit = (grossProfitPerTon * prodTon) / 1e8;
-
-  // 收入（亿元）
   const revenue = (alPrice * prodTon) / 1e8;
 
-  // 主业税前利润
   const mainOperatingProfit = grossProfit - p.periodExpenses;
-
-  // 合并其他业务，计税
   const preTaxProfit = mainOperatingProfit + p.otherProfit;
   const netProfit = preTaxProfit * (1 - p.taxRate);
-
   const eps = netProfit / p.shares;
 
-  // ── 敏感性分析 ────────────────────────────────────────────────────────
-  // 铝价 +1000 元/吨 → 净利变化（亿元）
-  const alSensitivity =
-    ((1_000 * prodTon) / 1e8) * (1 - p.taxRate);
-
-  // 氧化铝价 +100 元/吨 → 净利变化（亿元，负值代表成本上升）
+  const alSensitivity = ((1_000 * prodTon) / 1e8) * (1 - p.taxRate);
   const aluminaSensitivity =
     ((-100 * p.aluminaConsumption * (1 - p.aluminaSelfSupply) * prodTon) / 1e8) *
     (1 - p.taxRate);
@@ -102,6 +86,24 @@ export function calcEstimate(p: CompanyParams, prices: Prices): CompanyEstimate 
     eps: round2(eps),
     alSensitivity: round2(alSensitivity),
     aluminaSensitivity: round2(aluminaSensitivity),
+    // source params
+    alProduction: p.alProduction,
+    aluminaConsumption: p.aluminaConsumption,
+    aluminaSelfSupply: p.aluminaSelfSupply,
+    powerConsumption: p.powerConsumption,
+    powerPrice: p.powerPrice,
+    otherVarCostInput: p.otherVarCost,
+    periodExpenses: p.periodExpenses,
+    otherProfit: p.otherProfit,
+    taxRate: p.taxRate,
+    shares: p.shares,
+    // intermediate steps
+    aluminaCostPerTon: round2(aluminaCostPerTon),
+    powerCostPerTon: round2(powerCostPerTon),
+    varCostPerTon: round2(varCostPerTon),
+    grossProfitPerTon: round2(grossProfitPerTon),
+    mainOperatingProfit: round2(mainOperatingProfit),
+    preTaxProfit: round2(preTaxProfit),
   };
 }
 
@@ -110,6 +112,6 @@ function round2(n: number): number {
 }
 
 // ── 全部公司 ──────────────────────────────────────────────────────────────
-export function calcAllEstimates(prices: Prices): CompanyEstimate[] {
+export function calcAllEstimates(prices: Prices): CompanyEstimateDetailed[] {
   return COMPANIES.map((c) => calcEstimate(c, prices));
 }

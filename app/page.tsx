@@ -1,15 +1,249 @@
 'use client';
 
-import { useState, useMemo } from 'react';
-import type { WeeklyReport } from '@/lib/types';
+import { useState, useMemo, useEffect } from 'react';
+import type { WeeklyReport, CompanyEstimateDetailed, WeeklySnapshot, Prices } from '@/lib/types';
 import type { MarketMovers, StockItem } from '@/lib/market-movers';
 import type { ValuationResult, SectorData, EnrichedCompany } from '@/lib/valuation';
+
+// ── 工具函数 ──────────────────────────────────────────────────────────────
+const HISTORY_KEY = 'al_tracker_history';
+const MAX_HISTORY = 8;
+
+function isoWeekLabel(dateStr: string): string {
+  const d = new Date(dateStr);
+  const utc = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  const day = utc.getUTCDay() || 7;
+  utc.setUTCDate(utc.getUTCDate() + 4 - day);
+  const yearStart = new Date(Date.UTC(utc.getUTCFullYear(), 0, 1));
+  const week = Math.ceil(((utc.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
+  return `${utc.getUTCFullYear()}-W${String(week).padStart(2, '0')}`;
+}
+
+function saveSnapshot(report: WeeklyReport) {
+  try {
+    const snap: WeeklySnapshot = {
+      weekLabel: isoWeekLabel(report.generatedAt),
+      at: report.generatedAt,
+      alPrice: report.prices.alPrice,
+      aluminaPrice: report.prices.aluminaPrice,
+      estimates: report.estimates.map((e) => ({
+        code: e.code,
+        name: e.name,
+        netProfit: e.netProfit,
+        eps: e.eps,
+      })),
+    };
+    const history: WeeklySnapshot[] = JSON.parse(localStorage.getItem(HISTORY_KEY) ?? '[]');
+    const deduped = history.filter((h) => h.weekLabel !== snap.weekLabel);
+    localStorage.setItem(HISTORY_KEY, JSON.stringify([snap, ...deduped].slice(0, MAX_HISTORY)));
+  } catch { /* localStorage unavailable */ }
+}
+
+function loadHistory(): WeeklySnapshot[] {
+  try { return JSON.parse(localStorage.getItem(HISTORY_KEY) ?? '[]'); }
+  catch { return []; }
+}
+
+// ── 业绩计算过程表 ────────────────────────────────────────────────────────
+function CalcBreakdown({ estimates, prices }: { estimates: CompanyEstimateDetailed[]; prices: Prices }) {
+  const n = (v: number) => v.toLocaleString('zh-CN');
+  const pct = (v: number) => `${(v * 100).toFixed(0)}%`;
+
+  type DataRow = { label: string; values: string[]; bold?: boolean; accent?: boolean };
+  type SectionRow = { section: string };
+  type Row = DataRow | SectionRow;
+
+  const rows: Row[] = [
+    { section: '基础参数' },
+    { label: '铝产量（万吨/年）', values: estimates.map((e) => n(e.alProduction)) },
+    { label: '氧化铝消耗（吨/吨铝）', values: estimates.map((e) => e.aluminaConsumption.toFixed(2)) },
+    { label: '氧化铝自给率', values: estimates.map((e) => pct(e.aluminaSelfSupply)) },
+    { label: '电耗（kWh/吨铝）', values: estimates.map((e) => n(e.powerConsumption)) },
+    { label: '电价（元/kWh）', values: estimates.map((e) => e.powerPrice.toFixed(3)) },
+    { label: '其他变动成本（元/吨）', values: estimates.map((e) => n(e.otherVarCostInput)) },
+    { label: '期间费用（亿元）', values: estimates.map((e) => e.periodExpenses.toFixed(1)) },
+    { label: '其他业务净利（亿元）', values: estimates.map((e) => e.otherProfit.toFixed(1)) },
+    { label: '所得税率', values: estimates.map((e) => pct(e.taxRate)) },
+    { section: '成本结构（元/吨铝）' },
+    { label: '  氧化铝成本', values: estimates.map((e) => n(e.aluminaCostPerTon)) },
+    { label: '  电力成本', values: estimates.map((e) => n(e.powerCostPerTon)) },
+    { label: '  其他变动成本', values: estimates.map((e) => n(e.otherVarCostInput)) },
+    { label: '  完全变动成本', values: estimates.map((e) => n(e.varCostPerTon)), bold: true },
+    { label: '铝价（元/吨）', values: estimates.map(() => n(prices.alPrice)) },
+    { label: '  毛利/吨', values: estimates.map((e) => n(e.grossProfitPerTon)), bold: true, accent: true },
+    { section: '利润推导（亿元）' },
+    { label: '  毛利总额', values: estimates.map((e) => e.grossProfit.toFixed(2)) },
+    { label: '  − 期间费用', values: estimates.map((e) => `(${e.periodExpenses.toFixed(1)})`) },
+    { label: '  主业税前利润', values: estimates.map((e) => e.mainOperatingProfit.toFixed(2)) },
+    { label: '  + 其他业务利润', values: estimates.map((e) => `+${e.otherProfit.toFixed(1)}`) },
+    { label: '  税前利润', values: estimates.map((e) => e.preTaxProfit.toFixed(2)) },
+    { label: '  × (1 − 税率)', values: estimates.map((e) => pct(1 - e.taxRate)) },
+    { label: '  净利润', values: estimates.map((e) => e.netProfit.toFixed(2)), bold: true, accent: true },
+    { label: '  EPS（元/股）', values: estimates.map((e) => e.eps.toFixed(2)), bold: true, accent: true },
+    { section: '敏感性分析' },
+    { label: '  铝价 +1000 元/吨 → 净利', values: estimates.map((e) => `+${e.alSensitivity.toFixed(2)} 亿`) },
+    { label: '  氧化铝 +100 元/吨 → 净利', values: estimates.map((e) => `${e.aluminaSensitivity.toFixed(2)} 亿`) },
+  ];
+
+  return (
+    <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+      <div className="px-5 py-3.5 border-b border-slate-100">
+        <h3 className="font-semibold text-slate-800 text-sm">业绩计算过程</h3>
+        <p className="text-xs text-slate-400 mt-0.5">
+          沪铝 {n(prices.alPrice)} 元/吨 · 氧化铝 {n(prices.aluminaPrice)} 元/吨 · {prices.source}
+        </p>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs">
+          <thead>
+            <tr className="bg-slate-50">
+              <th className="py-2 px-3 text-left font-medium text-slate-500 min-w-[220px]">指标</th>
+              {estimates.map((e) => (
+                <th key={e.code} className="py-2 px-3 text-right font-semibold text-slate-700 whitespace-nowrap">
+                  {e.name}
+                  <span className="ml-1 text-slate-400 font-normal">{e.code}</span>
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row, i) => {
+              if ('section' in row) {
+                return (
+                  <tr key={i} className="bg-blue-50">
+                    <td
+                      colSpan={estimates.length + 1}
+                      className="py-1.5 px-3 text-xs font-semibold text-blue-700 uppercase tracking-wide"
+                    >
+                      {row.section}
+                    </td>
+                  </tr>
+                );
+              }
+              return (
+                <tr key={i} className="border-t border-slate-50 hover:bg-slate-50/60">
+                  <td className={`py-2 px-3 ${row.bold ? 'font-semibold text-slate-800' : 'text-slate-600'}`}>
+                    {row.label}
+                  </td>
+                  {row.values.map((v, j) => (
+                    <td
+                      key={j}
+                      className={`py-2 px-3 text-right tabular-nums ${
+                        row.accent
+                          ? 'text-blue-700 font-semibold'
+                          : row.bold
+                          ? 'font-semibold text-slate-800'
+                          : 'text-slate-700'
+                      }`}
+                    >
+                      {v}
+                    </td>
+                  ))}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// ── 周维度趋势 ────────────────────────────────────────────────────────────
+function WeeklyTrend({ history }: { history: WeeklySnapshot[] }) {
+  if (history.length === 0) return null;
+
+  const names = history[0].estimates.map((e) => e.name);
+  const n = (v: number) => v.toLocaleString('zh-CN');
+
+  function DeltaBadge({ curr, prev, decimals = 2 }: { curr: number; prev?: number; decimals?: number }) {
+    if (prev === undefined) return null;
+    const d = curr - prev;
+    if (Math.abs(d) < 0.005) return null;
+    const pos = d > 0;
+    const sign = pos ? '+' : '';
+    return (
+      <span className={`ml-1 text-[10px] ${pos ? 'text-rose-500' : 'text-green-600'}`}>
+        ({sign}{d.toFixed(decimals)})
+      </span>
+    );
+  }
+
+  return (
+    <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+      <div className="px-5 py-3.5 border-b border-slate-100">
+        <h3 className="font-semibold text-slate-800 text-sm">周维度趋势</h3>
+        <p className="text-xs text-slate-400 mt-0.5">最近 {history.length} 周 · 括号内为环比变化 · 本地浏览器缓存</p>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs">
+          <thead>
+            <tr className="bg-slate-50 text-slate-500">
+              <th className="py-2 px-3 text-left font-medium">周次</th>
+              <th className="py-2 px-3 text-right font-medium">沪铝（元/吨）</th>
+              <th className="py-2 px-3 text-right font-medium">氧化铝（元/吨）</th>
+              {names.map((nm) => (
+                <th key={nm + 'net'} className="py-2 px-3 text-right font-medium whitespace-nowrap">{nm} 净利（亿）</th>
+              ))}
+              {names.map((nm) => (
+                <th key={nm + 'eps'} className="py-2 px-3 text-right font-medium whitespace-nowrap">{nm} EPS</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {history.map((snap, i) => {
+              const prev = history[i + 1];
+              return (
+                <tr
+                  key={snap.weekLabel}
+                  className={`border-t border-slate-50 ${i === 0 ? 'bg-blue-50/40 font-medium' : 'hover:bg-slate-50/60'}`}
+                >
+                  <td className="py-2.5 px-3 text-slate-700 whitespace-nowrap">
+                    {snap.weekLabel}
+                    {i === 0 && (
+                      <span className="ml-1.5 text-[10px] bg-blue-100 text-blue-600 px-1 rounded">最新</span>
+                    )}
+                  </td>
+                  <td className="py-2.5 px-3 text-right tabular-nums text-slate-700">
+                    {n(snap.alPrice)}
+                    <DeltaBadge curr={snap.alPrice} prev={prev?.alPrice} decimals={0} />
+                  </td>
+                  <td className="py-2.5 px-3 text-right tabular-nums text-slate-700">
+                    {n(snap.aluminaPrice)}
+                    <DeltaBadge curr={snap.aluminaPrice} prev={prev?.aluminaPrice} decimals={0} />
+                  </td>
+                  {snap.estimates.map((e, j) => (
+                    <td key={e.code + 'net'} className="py-2.5 px-3 text-right tabular-nums text-slate-700">
+                      {e.netProfit.toFixed(2)}
+                      <DeltaBadge curr={e.netProfit} prev={prev?.estimates[j]?.netProfit} />
+                    </td>
+                  ))}
+                  {snap.estimates.map((e, j) => (
+                    <td key={e.code + 'eps'} className="py-2.5 px-3 text-right tabular-nums text-slate-700">
+                      {e.eps.toFixed(2)}
+                      <DeltaBadge curr={e.eps} prev={prev?.estimates[j]?.eps} />
+                    </td>
+                  ))}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
 
 // ── 铝业周报 Tab ──────────────────────────────────────────────────────────
 function AluminumSection() {
   const [status, setStatus] = useState<'idle' | 'loading' | 'done' | 'error'>('idle');
   const [report, setReport] = useState<WeeklyReport | null>(null);
   const [errorMsg, setErrorMsg] = useState('');
+  const [history, setHistory] = useState<WeeklySnapshot[]>([]);
+
+  useEffect(() => {
+    setHistory(loadHistory());
+  }, []);
 
   async function sendNow() {
     setStatus('loading');
@@ -18,8 +252,11 @@ function AluminumSection() {
       const res = await fetch('/api/send-report', { method: 'POST' });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
-      setReport(data.report);
+      const r: WeeklyReport = data.report;
+      setReport(r);
       setStatus('done');
+      saveSnapshot(r);
+      setHistory(loadHistory());
     } catch (e) {
       setErrorMsg(e instanceof Error ? e.message : String(e));
       setStatus('error');
@@ -63,38 +300,46 @@ function AluminumSection() {
       </div>
 
       {report && (
-        <div className="bg-white rounded-xl border border-slate-200 p-5">
-          <h2 className="font-semibold text-slate-800 mb-4">本次报告预览</h2>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-slate-100">
-                  <th className="text-left py-2 pr-4 text-slate-500 font-medium">公司</th>
-                  <th className="text-right py-2 px-4 text-slate-500 font-medium">净利润（亿）</th>
-                  <th className="text-right py-2 px-4 text-slate-500 font-medium">EPS（元）</th>
-                  <th className="text-right py-2 pl-4 text-slate-500 font-medium">铝价+1000→净利</th>
-                </tr>
-              </thead>
-              <tbody>
-                {report.estimates.map((e) => (
-                  <tr key={e.code} className="border-b border-slate-50">
-                    <td className="py-2 pr-4 font-medium text-slate-800">
-                      {e.name}
-                      <span className="ml-2 text-xs text-slate-400">{e.code}</span>
-                    </td>
-                    <td className="text-right py-2 px-4">{e.netProfit.toFixed(2)}</td>
-                    <td className="text-right py-2 px-4 font-semibold text-blue-700">{e.eps.toFixed(2)}</td>
-                    <td className="text-right py-2 pl-4 text-green-600">+{e.alSensitivity.toFixed(2)}</td>
+        <>
+          <CalcBreakdown estimates={report.estimates} prices={report.prices} />
+
+          <div className="bg-white rounded-xl border border-slate-200 p-5">
+            <h3 className="font-semibold text-slate-800 mb-4 text-sm">综合业绩摘要</h3>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-slate-100">
+                    <th className="text-left py-2 pr-4 text-slate-500 font-medium">公司</th>
+                    <th className="text-right py-2 px-4 text-slate-500 font-medium">毛利/吨（元）</th>
+                    <th className="text-right py-2 px-4 text-slate-500 font-medium">净利润（亿）</th>
+                    <th className="text-right py-2 px-4 text-slate-500 font-medium">EPS（元）</th>
+                    <th className="text-right py-2 pl-4 text-slate-500 font-medium">铝价+1000→净利</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {report.estimates.map((e) => (
+                    <tr key={e.code} className="border-b border-slate-50">
+                      <td className="py-2 pr-4 font-medium text-slate-800">
+                        {e.name}
+                        <span className="ml-2 text-xs text-slate-400">{e.code}</span>
+                      </td>
+                      <td className="text-right py-2 px-4 text-slate-700">{e.grossProfitPerTon.toLocaleString()}</td>
+                      <td className="text-right py-2 px-4">{e.netProfit.toFixed(2)}</td>
+                      <td className="text-right py-2 px-4 font-semibold text-blue-700">{e.eps.toFixed(2)}</td>
+                      <td className="text-right py-2 pl-4 text-green-600">+{e.alSensitivity.toFixed(2)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="mt-4 p-4 bg-slate-50 rounded-lg text-sm text-slate-600 leading-relaxed whitespace-pre-wrap">
+              {report.narrative}
+            </div>
           </div>
-          <div className="mt-4 p-4 bg-slate-50 rounded-lg text-sm text-slate-600 leading-relaxed whitespace-pre-wrap">
-            {report.narrative}
-          </div>
-        </div>
+        </>
       )}
+
+      <WeeklyTrend history={history} />
     </div>
   );
 }
