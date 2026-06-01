@@ -436,61 +436,90 @@ function ValuationRow({ company: c }: { company: EnrichedCompany }) {
 interface DigestItem { id: number; title: string; body: string }
 interface DigestData { date: string; lead: string; items: DigestItem[]; summary: string }
 
-const MOCK_DIGEST: DigestData = {
-  date: '06月01日',
-  lead: '过去 24 小时里，最值得盯的是两条主线：一是 Anthropic 继续把模型与融资两条战线同时拉满，二是中美围绕 AI 芯片、算力和开发者入口的竞争又有了新动作。今天的前几条，基本都指向同一个问题：谁能更快把更强模型和更大算力变成真实产品与收入。',
-  items: [
-    { id: 1, title: 'Anthropic 发布 Claude Opus 4.8，旗舰模型继续加码代码与代理能力', body: '新版本在保持原价的同时，上线了"动态工作流"和可调 effort，明显是在正面回应 Codex、Copilot 和 Gemini 这轮开发者竞争。' },
-    { id: 2, title: '美国商务部周日补上 AI 芯片出口漏洞', body: '明确对总部在中国、但位于境外的实体也执行先进芯片许可要求。若严格落地，NVIDIA Rubin、Blackwell 以及 AMD MI350x 向中国公司海外子公司的流转空间将被进一步压缩。' },
-    { id: 3, title: 'Anthropic 同时宣布完成 650 亿美元 Series H 融资，投后估值达到 9650 亿美元', body: '钱将继续硬向安全研究、算力扩容和 Claude 产品线，这也说明头部模型公司的资本门槛还在抬升。' },
-    { id: 4, title: '微软据报将在本周 Build 开发者大会上发布一组自研 AI 模型', body: '其中包括面向 GitHub Copilot 的代码模型。若消息成真，微软会进一步减少对外部模型的依赖，把 Copilot 拉回"平台自控"节奏。' },
-    { id: 5, title: 'NVIDIA 与微软据报将于下周亮相首批以 NVIDIA 芯片为主处理器的 Windows PC', body: 'AI PC 这一波如果从 NPU 辅助走向主处理器级别，Windows 端侧 AI 的硬件路线会被重新定义。' },
-    { id: 6, title: 'OpenAI 发布 Frontier Governance Framework', body: '把自身前沿模型治理做法与加州透明度法案、欧盟 AI Act 通用模型行为准则对齐。对整个行业来说，前沿模型公司正从"先上车再补规则"转向"边商业化边制度化"。' },
-    { id: 7, title: 'OpenAI 还推出 Rosalind Biodefense', body: '并向部分美国政府及盟友公共卫生伙伴扩大 GPT-Rosalind 的可信访问。AI 在生物安全方向的"防御性部署"开始从原则表态走向具体项目。' },
-    { id: 8, title: 'TSMC 高管最新表态：AI 正把芯片设计的核心约束从纯算力推向能效', body: '对数据中心和先进制程链条来说，接下来比拼的不只是更大模型，也是谁能把每瓦性能和供电成本压得更低。' },
-    { id: 9, title: '数据中心运营商 IREN 宣布斥资约 16 亿美元采购 Dell 提供的 NVIDIA Blackwell 系统', body: '以支撑其 AI 云合同扩容。算力备军竞赛还在继续，但现在比拼的已不只是拿到 GPU，而是能否更快把 GPU 变成稳定收入。' },
-    { id: 10, title: '中国首次将国产 AI 芯片纳入"安全可靠"采购目录，九款本土方案进入政府采购视野', body: '结合美国继续收紧先进芯片流向，这意味着中美 AI 供应链正在同时向"更强限制"和"更强国产替代"推进。' },
-  ],
-  summary: '模型、芯片、云和监管四条线正在同步加速，AI 竞争已经从"谁更会讲故事"全面切向"谁能更快把能力、算力和规则一起落地"。',
-};
-
 function DigestSection() {
-  const [digest] = useState<DigestData>(MOCK_DIGEST);
+  const [status, setStatus] = useState<'idle' | 'loading' | 'done' | 'error'>('idle');
+  const [digest, setDigest] = useState<DigestData | null>(null);
+  const [errorMsg, setErrorMsg] = useState('');
+
+  async function load() {
+    setStatus('loading');
+    setErrorMsg('');
+    try {
+      const res = await fetch('/api/digest');
+      const json = await res.json();
+      if (!res.ok || !json.ok) throw new Error(json.error ?? `HTTP ${res.status}`);
+      setDigest(json.data);
+      setStatus('done');
+    } catch (e) {
+      setErrorMsg(e instanceof Error ? e.message : String(e));
+      setStatus('error');
+    }
+  }
 
   return (
     <div className="space-y-4">
-      {/* 头部 */}
+      {/* 头部控制栏 */}
       <div className="bg-white rounded-xl border border-slate-200 p-5">
-        <div className="flex items-center justify-between flex-wrap gap-3">
+        <div className="flex items-start justify-between gap-4 flex-wrap">
           <div>
-            <h2 className="font-semibold text-slate-800 text-base">科技 / AI 十条晨报</h2>
-            <p className="text-xs text-slate-400 mt-0.5">{digest.date} · 由 Claude AI 自动生成</p>
+            <h2 className="font-semibold text-slate-800 mb-1">科技 / AI 晨报</h2>
+            <p className="text-sm text-slate-500">抓取昨日科技新闻 · Claude AI 中文摘要</p>
+            {digest && <p className="text-xs text-slate-400 mt-1">{digest.date}</p>}
           </div>
-          <span className="text-xs bg-green-50 text-green-600 border border-green-200 px-2.5 py-1 rounded-full">已发送至邮箱</span>
+          <button
+            type="button"
+            onClick={load}
+            disabled={status === 'loading'}
+            className="flex-shrink-0 px-4 py-2 bg-blue-700 hover:bg-blue-800 disabled:bg-blue-300 text-white text-sm font-medium rounded-lg transition-colors"
+          >
+            {status === 'loading' ? '生成中（约 20 秒）…' : status === 'done' ? '重新生成' : '生成今日晨报'}
+          </button>
         </div>
-        <p className="mt-3 text-sm text-slate-600 leading-relaxed border-t border-slate-100 pt-3">{digest.lead}</p>
-      </div>
-
-      {/* 新闻列表 */}
-      <div className="space-y-2.5">
-        {digest.items.map((item) => (
-          <div key={item.id} className="bg-white rounded-xl border border-slate-200 px-5 py-4 flex gap-4">
-            <span className="flex-shrink-0 w-6 h-6 rounded-full bg-blue-50 text-blue-600 text-xs font-semibold flex items-center justify-center mt-0.5">
-              {item.id}
-            </span>
-            <div>
-              <p className="text-sm font-medium text-slate-800 leading-snug">{item.title}</p>
-              <p className="text-sm text-slate-500 leading-relaxed mt-1">{item.body}</p>
-            </div>
+        {status === 'error' && (
+          <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
+            生成失败：{errorMsg}
           </div>
-        ))}
+        )}
       </div>
 
-      {/* 总结 */}
-      <div className="bg-slate-800 rounded-xl px-5 py-4">
-        <p className="text-xs text-slate-400 mb-1">一句话总结</p>
-        <p className="text-sm text-white leading-relaxed">{digest.summary}</p>
-      </div>
+      {/* 加载中 */}
+      {status === 'loading' && (
+        <div className="bg-white rounded-xl border border-slate-200 p-12 text-center">
+          <div className="w-8 h-8 border-2 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
+          <p className="text-sm text-slate-500">正在抓取 RSS · AI 摘要生成中，约需 20 秒…</p>
+        </div>
+      )}
+
+      {/* 结果 */}
+      {digest && status === 'done' && (
+        <>
+          {/* 导语 */}
+          <div className="bg-white rounded-xl border border-slate-200 px-5 py-4">
+            <p className="text-sm text-slate-600 leading-relaxed">{digest.lead}</p>
+          </div>
+
+          {/* 新闻列表 */}
+          <div className="space-y-2.5">
+            {digest.items.map((item) => (
+              <div key={item.id} className="bg-white rounded-xl border border-slate-200 px-5 py-4 flex gap-4">
+                <span className="flex-shrink-0 w-6 h-6 rounded-full bg-blue-50 text-blue-600 text-xs font-semibold flex items-center justify-center mt-0.5">
+                  {item.id}
+                </span>
+                <div>
+                  <p className="text-sm font-medium text-slate-800 leading-snug">{item.title}</p>
+                  <p className="text-sm text-slate-500 leading-relaxed mt-1">{item.body}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* 总结 */}
+          <div className="bg-slate-800 rounded-xl px-5 py-4">
+            <p className="text-xs text-slate-400 mb-1">一句话总结</p>
+            <p className="text-sm text-white leading-relaxed">{digest.summary}</p>
+          </div>
+        </>
+      )}
     </div>
   );
 }
